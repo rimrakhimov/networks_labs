@@ -26,3 +26,8 @@ typedef struct _student_struct {
 typedef struct student_result_struct_ {
     char information[MAX_STUDENT_NAME_LENGTH+MAX_STUDENT_NAME_LENGTH+MAX_STUDENT_GROUP_LENGTH+5];
 } student_result_struct_t;
+
+typedef struct _thread_args_struct {
+    int sockfd;
+    int tid;
+} thread_args_struct;

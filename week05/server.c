@@ -15,26 +15,51 @@
 #define SERVER_PORT     2000
 #define THREAD_COUNTS 10
 
+student_struct_t test_struct;
+result_struct_t res_struct;
+
+pthread_t threads[THREAD_COUNTS];
+int thread_used[THREAD_COUNTS];
+thread_args_struct thread_arguments[THREAD_COUNTS];
+
 void *connection_handler(void *data) {
-    student_struct_t *client_data = &(((thread_args_struct*)(data))->student_data);
+    char data_buffer[1024];
+    memset(data_buffer, 0, sizeof(data_buffer));
+
+    thread_args_struct *t_args = (thread_args_struct *)data;
+    int socketfd = t_args->sockfd;
+    int sent_recv_bytes;
+
+    struct sockaddr_in client_addr;
+    int addr_len = sizeof(struct sockaddr);
+
+    /*Like in client case, this is also a blocking system call, meaning, server process halts here untill
+    * data arrives on this comm_socket_fd from client whose connection request has been accepted via accept()*/
+    /* state Machine state 3*/
+    sent_recv_bytes = recvfrom(socketfd, (char *)data_buffer, sizeof(data_buffer), 0,
+        (struct sockaddr *)&client_addr, &addr_len);
+
+    /* state Machine state 4*/
+    printf("Thread %d recvd %d bytes from client %s:%u\n", t_args->tid, sent_recv_bytes, 
+        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+    student_struct_t *client_data = (student_struct_t *)&data_buffer;
 
     student_result_struct_t result;
     parse_input(client_data, &result.information);
 
     /* Server replying back to client now*/
-    int sent_recv_bytes = sendto(socketfd, (char *)&result, sizeof(student_result_struct_t), 
+    sent_recv_bytes = sendto(socketfd, (char *)&result, sizeof(student_result_struct_t), 
         0, (struct sockaddr *)&client_addr, sizeof(struct sockaddr));
 
-    printf("Server sent %d bytes in reply to client\n", sent_recv_bytes);
+    printf("Thread %d. Got student's information: %s\n", t_args->tid, &result.information);
+
+    printf("Thread %d sent %d bytes in reply to client\n", t_args->tid, sent_recv_bytes);
+
+    sleep(10);
+    thread_used[t_args->tid] = 0;
+    pthread_exit(NULL);
 }
-
-student_struct_t test_struct;
-result_struct_t res_struct;
-char data_buffer[1024];
-
-pthread_t threads[THREAD_COUNTS];
-int thread_used[THREAD_COUNTS];
-thread_args_struct thread_arguments[THREAD_COUNTS];
 
 void parse_input(student_struct_t *inp_buffer, char *result) {
     int total_length = 0;
@@ -76,13 +101,11 @@ void setup_udp_server_communication(){
    /*Socket handle and other variables*/
    /*Master socket file descriptor, used to accept new client connection only, no data exchange*/
    int socketfd = 0, 
-       sent_recv_bytes = 0, 
-       addr_len = 0, 
+       sent_recv_bytes = 0,
        free_thread_index = 0;
 
    /*variables to hold server information*/
-   struct sockaddr_in server_addr, /*structure to store the server and client info*/
-                      client_addr;
+   struct sockaddr_in server_addr; /*structure to store the server and client info*/
 
    /*step 2: tcp master socket creation*/
    if ((socketfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP )) == -1)
@@ -100,8 +123,6 @@ void setup_udp_server_communication(){
    //of this machine, in this case it is 192.168.56.101*/
    server_addr.sin_addr.s_addr = INADDR_ANY; 
 
-   addr_len = sizeof(struct sockaddr);
-
    /* Bind the server. Binding means, we are telling kernel(OS) that any data 
     * you recieve with dest ip address = 192.168.56.101, and tcp port no = 2000, pls send that data to this process
     * bind() is a mechnism to tell OS what kind of data server process is interested in to recieve. Remember, server machine
@@ -117,30 +138,14 @@ void setup_udp_server_communication(){
    /* Server infinite loop for servicing the client*/
 
     while(1){
-        printf("Server ready to service clients msgs.\n");
-        /*Drain to store client info (ip and port) when data arrives from client, sometimes, server would want to find the identity of the client sending msgs*/
-        memset(data_buffer, 0, sizeof(data_buffer));
-
-        /*Like in client case, this is also a blocking system call, meaning, server process halts here untill
-        * data arrives on this comm_socket_fd from client whose connection request has been accepted via accept()*/
-        /* state Machine state 3*/
-        sent_recv_bytes = recvfrom(socketfd, (char *)data_buffer, sizeof(data_buffer), 0,
-                (struct sockaddr *)&client_addr, &addr_len);
-
-        /* state Machine state 4*/
-        printf("Server recvd %d bytes from client %s:%u\n", sent_recv_bytes, 
-            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
-        int i = free_thread_index;
-        memcpy(&(thread_arguments[i].student_data), data_buffer, sizeof(student_struct_t));
-        thread_arguments[i].tid = i;
-        pthread_create(&threads[free_thread_index], NULL, connection_handler, (void *)(&thread_arguments[i]));
-
-        i++;
-        while(thread_used[i]) {
-            i = (i+1) % THREAD_COUNTS;
+        for (int i = 0; i < THREAD_COUNTS; ++i) {
+            if (!thread_used[i]) {
+                thread_used[i] = 1;
+                thread_arguments[i].sockfd = socketfd;
+                thread_arguments[i].tid = i;
+                pthread_create(&threads[i], NULL, connection_handler, (void *)&thread_arguments[i]);
+            }
         }
-        free_thread_index = i;
     } /*step 10 : wait for new client request again*/    
 }
 
