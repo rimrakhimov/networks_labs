@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -12,10 +13,28 @@
 
 /*Server process is running on this port no. Client has to send data to this port no*/
 #define SERVER_PORT     2000
+#define THREAD_COUNTS 10
+
+void *connection_handler(void *data) {
+    student_struct_t *client_data = &(((thread_args_struct*)(data))->student_data);
+
+    student_result_struct_t result;
+    parse_input(client_data, &result.information);
+
+    /* Server replying back to client now*/
+    int sent_recv_bytes = sendto(socketfd, (char *)&result, sizeof(student_result_struct_t), 
+        0, (struct sockaddr *)&client_addr, sizeof(struct sockaddr));
+
+    printf("Server sent %d bytes in reply to client\n", sent_recv_bytes);
+}
 
 student_struct_t test_struct;
 result_struct_t res_struct;
 char data_buffer[1024];
+
+pthread_t threads[THREAD_COUNTS];
+int thread_used[THREAD_COUNTS];
+thread_args_struct thread_arguments[THREAD_COUNTS];
 
 void parse_input(student_struct_t *inp_buffer, char *result) {
     int total_length = 0;
@@ -59,7 +78,7 @@ void setup_udp_server_communication(){
    int socketfd = 0, 
        sent_recv_bytes = 0, 
        addr_len = 0, 
-       opt = 1;
+       free_thread_index = 0;
 
    /*variables to hold server information*/
    struct sockaddr_in server_addr, /*structure to store the server and client info*/
@@ -112,16 +131,16 @@ void setup_udp_server_communication(){
         printf("Server recvd %d bytes from client %s:%u\n", sent_recv_bytes, 
             inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-        student_struct_t *client_data = (student_struct_t *)data_buffer;
+        int i = free_thread_index;
+        memcpy(&(thread_arguments[i].student_data), data_buffer, sizeof(student_struct_t));
+        thread_arguments[i].tid = i;
+        pthread_create(&threads[free_thread_index], NULL, connection_handler, (void *)(&thread_arguments[i]));
 
-        student_result_struct_t result;
-        parse_input(client_data, &result.information);
-
-        /* Server replying back to client now*/
-        sent_recv_bytes = sendto(socketfd, (char *)&result, sizeof(student_result_struct_t), 
-            0, (struct sockaddr *)&client_addr, sizeof(struct sockaddr));
-
-        printf("Server sent %d bytes in reply to client\n", sent_recv_bytes);
+        i++;
+        while(thread_used[i]) {
+            i = (i+1) % THREAD_COUNTS;
+        }
+        free_thread_index = i;
     } /*step 10 : wait for new client request again*/    
 }
 
