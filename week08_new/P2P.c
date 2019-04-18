@@ -576,6 +576,12 @@ void *connection_handler(void *data) {
             pthread_mutex_unlock(&known_nodes_lock);
         }
 
+        while ((ptr = strtok(NULL, ",")) != NULL) {
+            if (dict_insert(ptr, peer_name, peer_addr, peer_port, available_files)) {
+                printf("File %s was added to the list of known files\n", ptr);
+            }
+        }
+
         int number_of_nodes = 0;
         char buf_peer[PEER_INFORMATION_LENGTH];
         if ((recv_bytes = recv(*sockfd, &number_of_nodes, sizeof(int), MSG_WAITALL)) < 0) {
